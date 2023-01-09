@@ -1,0 +1,45 @@
+# function to detect eRNA-TF pairs
+# input: eRNA.file (differentially analyzed eRNA list), TF.file (JASPAR2020_TFFM_table), tcga.data.list
+# output: eRNA-TF pairs
+#=========using hg19========================
+# pancancer enhancer paper used hg19
+
+eRNA_TF_pairs <- function(eRNA.list, tf_list)
+{
+        ##fetch sequence
+        library(BSgenome.Hsapiens.UCSC.hg19)
+        ## read the eRNA location
+        ## eRNA_loc = eRNA.list
+        gr=GRanges(seqnames = eRNA.list$chr,IRanges(start=as.numeric(eRNA.list$start),end=as.numeric(eRNA.list$end)))
+        seq = getSeq(Hsapiens, gr)
+        library(Biostrings)
+        library(TFBSTools)
+        library(JASPAR2020)
+        db <- file.path(system.file("extdata", package="JASPAR2020"), "JASPAR2020.sqlite")
+        pfmList <- getMatrixByName(db, name=tf_list)
+        TF_binding = NULL;# = list();
+        for(i in 1:length(pfmList))
+        {
+                pwm = toPWM(pfmList[[i]]);
+                siteset <- searchSeq(pwm, seq, seqname="seq1", min.score="70%", strand="*")
+                TF_binding = rbind(TF_binding, writeGFF3(siteset))
+                print(i)
+        }
+        
+        tf.split <- TF_binding$attributes
+        library(stringr)
+        tf.only <- str_split_fixed(tf.split, ";", 3)
+        tf.only <- str_split_fixed(tf.only[,1], "=", 2)
+        e.tf <- paste(TF_binding$seqname, tf.only[,2], sep = "_")
+        e.tf <- unique(e.tf)
+        e.tf <- str_split_fixed(e.tf, "_", 2)
+        index <- as.numeric(e.tf[,1])
+        e.tf <- data.frame(cbind(e.names[index], e.tf[,2]))
+        colnames(e.tf) <- c("eRNA", "TF") # eRNA-TF pairs in dataframe
+        return(e.tf)
+}
+
+
+
+
+
