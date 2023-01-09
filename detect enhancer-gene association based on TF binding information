@@ -1,0 +1,80 @@
+## input: eRNA-gene file path, eRNA-TF list
+## output: new eRNA-gene list
+
+eRNA_gene_new <- function(eRNA.gene.pairs, eRNA_TF, exp.mat, cf.mat, cutoff, TF.pool, iteration = 100)
+{
+        eRNA_gene_pair <- data.frame(readRDS(eRNA.gene.pairs))
+        colnames(eRNA_gene_pair) <- c("eRNA", "gene")
+        eRNA_TF <- readRDS(eRNA_TF)
+        pv = rep(1, dim(eRNA_gene_pair)[1])
+        for(i in 1:length(eRNA_gene_pair[,1]))
+        {
+                start_time <- Sys.time()
+                TF.list <- unique(eRNA_TF[eRNA_TF$eRNA == eRNA_gene_pair$eRNA[i],]$TF);
+                if(length(TF.list) == 0)
+                {
+                        pv[i] = 1;
+                        next;
+                }
+                pv[i] <- enhancer_association(TF.list, eRNA_gene_pair$gene[i],exp.mat, cf.mat, cutoff, TF.pool, iteration = 100)
+                end_time <- Sys.time()
+                #print(end_time - start_time)
+                #print(pv[i])
+                print(i);
+        }
+        
+        eRNA_gene_pv <- as.data.frame(cbind(eRNA_gene_pair$eRNA, eRNA_gene_pair$gene, pv));
+        #colnames(eRNA_gene_pair) <- c("eRNA", "gene", "TF_percentage")
+        colnames(eRNA_gene_pv) <- c("eRNA", "gene", "empirical_p_value")
+        return(eRNA_gene_pv)
+}
+
+
+
+
+
+## function to predict an eRNA which is significantly associated with a target gene based on enhancer's TF binding
+## The rationale is to find the number of binding TFs which are associated with the target gene, then generate a null distribution by sampling the same number of TFs from the pool and finally report an empirical p-value
+## input: TF.list is from above function, the list of tfs bound to one enhancer; gene[i] in above function; TF.pool is the entire tfs generated in function tf_list
+
+enhancer_association <- function(TF.list, gene, exp.mat, cf.mat, cutoff, TF.pool, iteration = 100)
+{
+        tfs = intersect(TF.list, rownames(exp.mat));
+        num.tfs = length(tfs);
+        num.fg = TF_association(tfs, gene, exp.mat, cf.mat, cutoff);
+        null.dis = unlist(sapply(1:iteration, function(x){tfs.rand = sample(TF.pool, num.tfs); TF_association(tfs.rand, gene, exp.mat, cf.mat, cutoff)}))
+        
+        return(sum(null.dis >= num.fg)/iteration);
+        #return(num.fg);
+}
+
+
+
+
+## function to test the association of a list of TFs and a potential target gene
+## Input: a list of TFs, a target gene, expression matrix and confound factor matrix
+## Output: the number of TFs which are significantly associated with a target gene 
+
+TF_association <- function(TF.list, gene, exp.mat, cf.mat=NULL, cutoff)
+{
+        if(length(intersect(gene, rownames(exp.mat))) == 0 || length(intersect(TF.list, rownames(exp.mat))) == 0 )
+                return(0);
+        uppernames <- toupper(rownames(exp.mat))
+        upper.exp.mat <- exp.mat
+        rownames(upper.exp.mat) <- uppernames
+        y = upper.exp.mat[toupper(gene),];
+        x = t(upper.exp.mat[toupper(TF.list),,drop=FALSE]);
+        num = length(TF.list);
+        if(!is.null(cf.mat))
+        {
+                pv = unlist(sapply(1:num, function(i){fit = lm(y ~ x[,i] + cf.mat);  summary(fit)$coefficients[2,4]}));
+        } else {
+                pv = unlist(sapply(1:num, function(i){fit = lm(y ~ x[,i]);  summary(fit)$coefficients[2,4]}));
+        }
+        
+        qv = p.adjust(pv, "fdr");
+        
+        return(sum(qv < cutoff));
+}
+
+
